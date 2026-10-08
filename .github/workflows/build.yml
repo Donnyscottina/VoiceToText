@@ -1,0 +1,38 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore
+        run: dotnet restore VoiceToText.slnx
+
+      - name: Build
+        run: dotnet build VoiceToText.slnx -c Release --no-restore
+
+      - name: Publish Windows x64
+        run: dotnet publish VoiceToText.csproj -c Release -r win-x64 --self-contained true --no-restore -o artifacts/VoiceToText-win-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceToText-win-x64
+          path: artifacts/VoiceToText-win-x64
+          if-no-files-found: error
