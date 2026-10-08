@@ -27,6 +27,12 @@ jobs:
       - name: Build
         run: dotnet build VoiceToText.slnx -c Release --no-restore
 
+      - name: Compile smoke test
+        run: dotnet build tests/VoiceToText.SmokeTest/VoiceToText.SmokeTest.csproj -c Release
+
+      - name: Restore Windows runtime
+        run: dotnet restore VoiceToText.csproj -r win-x64
+
       - name: Publish Windows x64
         run: dotnet publish VoiceToText.csproj -c Release -r win-x64 --self-contained true --no-restore -o artifacts/VoiceToText-win-x64
 

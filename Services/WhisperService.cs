@@ -14,20 +14,36 @@ internal sealed class WhisperService : IDisposable
     public static string ModelsDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VoiceToText", "models");
 
-    public async Task InitializeAsync(AppSettings settings, IProgress<int>? progress = null, CancellationToken token = default)
+    public async Task InitializeAsync(AppSettings settings, IProgress<ModelLoadProgress>? progress = null, CancellationToken token = default)
     {
         await _gate.WaitAsync(token);
         try
         {
-            DisposeEngine();
+            await Task.Run(DisposeEngine, token);
             Directory.CreateDirectory(ModelsDirectory);
-            var (type, fileName) = ResolveModel(settings.Model);
+            var (type, fileName, expectedBytes) = ResolveModel(settings.Model);
             var path = Path.Combine(ModelsDirectory, fileName);
-            if (!File.Exists(path)) await DownloadModelAsync(type, path, progress, token);
+            if (!File.Exists(path)) await DownloadModelAsync(type, path, expectedBytes, progress, token);
 
-            _factory = WhisperFactory.FromPath(path);
+            progress?.Report(new ModelLoadProgress(ModelLoadStage.Preparing));
             var language = settings.Language == "auto" ? "auto" : settings.Language;
-            _processor = _factory.CreateBuilder().WithLanguage(language).Build();
+            var engine = await Task.Run(() =>
+            {
+                token.ThrowIfCancellationRequested();
+                var factory = WhisperFactory.FromPath(path);
+                try
+                {
+                    var processor = factory.CreateBuilder().WithLanguage(language).Build();
+                    return (Factory: factory, Processor: processor);
+                }
+                catch
+                {
+                    factory.Dispose();
+                    throw;
+                }
+            }, token);
+            _factory = engine.Factory;
+            _processor = engine.Processor;
         }
         finally { _gate.Release(); }
     }
@@ -47,25 +63,50 @@ internal sealed class WhisperService : IDisposable
         finally { _gate.Release(); }
     }
 
-    private static async Task DownloadModelAsync(GgmlType type, string path, IProgress<int>? progress, CancellationToken token)
+    private static async Task DownloadModelAsync(GgmlType type, string path, long expectedBytes, IProgress<ModelLoadProgress>? progress, CancellationToken token)
     {
         var temporaryPath = path + ".download";
         try
         {
+            // A killed process may leave an incomplete download behind.
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
             using var source = await WhisperGgmlDownloader.Default.GetGgmlModelAsync(type, cancellationToken: token);
-            await using var target = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-            var buffer = new byte[81920];
-            long total = 0;
-            int read;
-            while ((read = await source.ReadAsync(buffer, token)) > 0)
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var lastPercent = -1;
+            await using (var target = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
             {
-                await target.WriteAsync(buffer.AsMemory(0, read), token);
-                total += read;
-                progress?.Report((int)Math.Min(95, total / 2_000_000));
+                var buffer = new byte[81920];
+                long total = 0;
+                int read;
+                while ((read = await source.ReadAsync(buffer, token)) > 0)
+                {
+                    await target.WriteAsync(buffer.AsMemory(0, read), token);
+                    total += read;
+                    var percent = (int)Math.Min(99, total * 100 / expectedBytes);
+                    if (percent != lastPercent)
+                    {
+                        lastPercent = percent;
+                        var speed = total / Math.Max(0.1, watch.Elapsed.TotalSeconds);
+                        var secondsLeft = speed > 0 ? Math.Max(0, expectedBytes - total) / speed : 0;
+                        progress?.Report(new ModelLoadProgress(
+                            ModelLoadStage.Downloading,
+                            total,
+                            expectedBytes,
+                            percent,
+                            speed,
+                            TimeSpan.FromSeconds(secondsLeft)));
+                    }
+                }
+                await target.FlushAsync(token);
             }
-            await target.FlushAsync(token);
             File.Move(temporaryPath, path, true);
-            progress?.Report(100);
+            progress?.Report(new ModelLoadProgress(
+                ModelLoadStage.Downloading,
+                expectedBytes,
+                expectedBytes,
+                100,
+                expectedBytes / Math.Max(0.1, watch.Elapsed.TotalSeconds),
+                TimeSpan.Zero));
         }
         catch
         {
@@ -74,14 +115,14 @@ internal sealed class WhisperService : IDisposable
         }
     }
 
-    private static (GgmlType Type, string FileName) ResolveModel(string model) => model switch
+    private static (GgmlType Type, string FileName, long ExpectedBytes) ResolveModel(string model) => model switch
     {
-        "tiny" => (GgmlType.Tiny, "ggml-tiny.bin"),
-        "base" => (GgmlType.Base, "ggml-base.bin"),
-        "medium" => (GgmlType.Medium, "ggml-medium.bin"),
-        "large-v3" => (GgmlType.LargeV3, "ggml-large-v3.bin"),
-        "large-v3-turbo" => (GgmlType.LargeV3Turbo, "ggml-large-v3-turbo.bin"),
-        _ => (GgmlType.Small, "ggml-small.bin")
+        "tiny" => (GgmlType.Tiny, "ggml-tiny.bin", 78_000_000),
+        "base" => (GgmlType.Base, "ggml-base.bin", 148_000_000),
+        "medium" => (GgmlType.Medium, "ggml-medium.bin", 1_534_000_000),
+        "large-v3" => (GgmlType.LargeV3, "ggml-large-v3.bin", 3_095_000_000),
+        "large-v3-turbo" => (GgmlType.LargeV3Turbo, "ggml-large-v3-turbo.bin", 1_625_000_000),
+        _ => (GgmlType.Small, "ggml-small.bin", 488_000_000)
     };
 
     private void DisposeEngine()

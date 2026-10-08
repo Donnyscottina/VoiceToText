@@ -1,27 +1,27 @@
-name: Ошибка
-description: Сообщить о воспроизводимой проблеме
+name: Ошибка / Bug
+description: Сообщить о проблеме / Report a reproducible problem
 title: "[Bug]: "
 labels: [bug]
 body:
   - type: textarea
     attributes:
-      label: Что произошло?
-      description: Опишите фактическое и ожидаемое поведение.
+      label: Что произошло? / What happened?
+      description: Опишите фактическое и ожидаемое поведение. / Describe actual and expected behavior.
     validations:
       required: true
   - type: textarea
     attributes:
-      label: Как воспроизвести?
+      label: Как воспроизвести? / Reproduction steps
       placeholder: "1. Запустить…\n2. Выбрать…\n3. Увидеть…"
     validations:
       required: true
   - type: input
     attributes:
-      label: Версия Windows
+      label: Версия Windows / Windows version
       placeholder: Windows 11 24H2
     validations:
       required: true
   - type: input
     attributes:
-      label: Модель и видеокарта
+      label: Модель и видеокарта / Model and GPU
       placeholder: small, NVIDIA RTX 3060

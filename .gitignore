@@ -11,8 +11,7 @@ publish/
 *.user
 *.suo
 
-# Local models and settings
-models/
+# Local model weights and settings
 *.bin
 settings.json
 
