@@ -25,7 +25,7 @@ The app is written in C# and recognizes speech entirely on your computer. I do n
 2. Download and extract `VoiceToText-win-x64.zip`.
 3. Run `VoiceToText.exe`.
 4. Wait for the first model download. I selected `large-v3` by default; it is about 3.1 GB.
-5. Focus any text field, hold `Caps Lock`, speak, and release the key.
+5. Focus any text field, hold `F8`, speak, and release the key.
 
 Press `Esc` to cancel recording or transcription. Closing the window keeps the app running in the system tray.
 
@@ -38,11 +38,16 @@ The app lets you choose:
 - model: `tiny`, `base`, `small`, `medium`, `large-v3-turbo`, or `large-v3`;
 - recognition language: auto-detect, Russian, or English;
 - interface language: English or Russian;
+- input microphone and sensitivity from 100% to 500% (250% by default);
 - Push-to-Talk key and key suppression;
 - clipboard restoration after insertion;
 - start-minimized and close-to-tray behavior.
 
 Settings are stored in `%APPDATA%\VoiceToText\settings.json`; models are stored in `%LOCALAPPDATA%\VoiceToText\models`.
+
+Push-to-Talk defaults to `F8`. You can choose F1–F24, numpad, navigation, browser,
+and media keys. If you select `Caps Lock`, a quick tap still toggles capitalization
+normally, while holding it starts dictation.
 
 ## Choosing a model
 

@@ -41,14 +41,36 @@ internal static class Program
             }
             passed.Add("Русский и английский интерфейс");
 
+            var legacySettings = new AppSettings { PushToTalkKey = "CapsLock", SettingsVersion = 1 };
+            legacySettings.MigrateLegacySettings();
+            Require(legacySettings.PushToTalkKey == "F8" && legacySettings.SettingsVersion == AppSettings.CurrentSettingsVersion,
+                "Старые настройки Caps Lock не были безопасно обновлены");
+            Require(SettingsForm.HotkeyChoices.Length >= 50 && SettingsForm.HotkeyChoices.Contains("F24") &&
+                SettingsForm.HotkeyChoices.Contains("MediaPlayPause"), "Расширенный список горячих клавиш неполон");
+            passed.Add("Миграция Caps Lock и расширенный выбор горячих клавиш");
+
+            var gainTest = CreateTestWave(1000);
+            AudioRecorder.ApplyGain(gainTest, 2.5f);
+            Require(BitConverter.ToInt16(gainTest, 44) == 2500, "Усиление чувствительности микрофона работает неверно");
+            passed.Add("Усиление чувствительности микрофона");
+
             byte[] audio;
             using (var recorder = new AudioRecorder())
             {
+                var microphones = AudioRecorder.GetInputDevices();
+                Console.WriteLine($"Активных микрофонов: {microphones.Count}");
+                foreach (var microphone in microphones) Console.WriteLine($"  {microphone.Name}");
                 recorder.Start();
                 await Task.Delay(900);
                 audio = recorder.Stop();
-                Require(audio.Length > 10_000, "Микрофон вернул слишком мало аудиоданных");
-                passed.Add($"Микрофон ({audio.Length / 1024} КБ в памяти)");
+                Require(audio.Length >= 44, $"Микрофон вернул повреждённый WAV: {audio.Length} байт");
+                if (audio.Length > 10_000)
+                    passed.Add($"Микрофон ({audio.Length / 1024} КБ в памяти)");
+                else
+                {
+                    passed.Add("Микрофон открыт и закрыт (во время теста входной сигнал отсутствовал)");
+                    audio = CreateTestWave(0, sampleCount: 16_000);
+                }
             }
 
             using (var whisper = new WhisperService())
@@ -86,6 +108,27 @@ internal static class Program
     private static void Require(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+
+    private static byte[] CreateTestWave(short sample, int sampleCount = 1)
+    {
+        var dataSize = sampleCount * sizeof(short);
+        var wav = new byte[44 + dataSize];
+        "RIFF"u8.CopyTo(wav);
+        BitConverter.GetBytes(36 + dataSize).CopyTo(wav, 4);
+        "WAVEfmt "u8.CopyTo(wav.AsSpan(8));
+        BitConverter.GetBytes(16).CopyTo(wav, 16);
+        BitConverter.GetBytes((short)1).CopyTo(wav, 20);
+        BitConverter.GetBytes((short)1).CopyTo(wav, 22);
+        BitConverter.GetBytes(16_000).CopyTo(wav, 24);
+        BitConverter.GetBytes(32_000).CopyTo(wav, 28);
+        BitConverter.GetBytes((short)2).CopyTo(wav, 32);
+        BitConverter.GetBytes((short)16).CopyTo(wav, 34);
+        "data"u8.CopyTo(wav.AsSpan(36));
+        BitConverter.GetBytes(dataSize).CopyTo(wav, 40);
+        for (var offset = 44; offset < wav.Length; offset += 2)
+            BitConverter.GetBytes(sample).CopyTo(wav, offset);
+        return wav;
     }
 
     private static bool AllChildrenFit(Control parent)

@@ -1,5 +1,6 @@
 using VoiceToText.Controls;
 using VoiceToText.Models;
+using VoiceToText.Services;
 
 namespace VoiceToText.Forms;
 
@@ -9,6 +10,8 @@ internal sealed class SettingsForm : Form
     private readonly ComboBox _language = NewCombo();
     private readonly ComboBox _interfaceLanguage = NewCombo();
     private readonly ComboBox _hotkey = NewCombo();
+    private readonly ComboBox _microphone = NewCombo();
+    private readonly NumericUpDown _sensitivity = new();
     private readonly CheckBox _suppress = NewCheck();
     private readonly CheckBox _startMinimized = NewCheck();
     private readonly CheckBox _closeToTray = NewCheck();
@@ -25,8 +28,8 @@ internal sealed class SettingsForm : Form
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(550, 610);
-        MinimumSize = new Size(500, 570);
+        ClientSize = new Size(620, 710);
+        MinimumSize = new Size(560, 670);
         AutoScaleMode = AutoScaleMode.Dpi;
         BackColor = Color.FromArgb(13, 17, 24);
         ForeColor = Color.FromArgb(235, 239, 247);
@@ -43,11 +46,11 @@ internal sealed class SettingsForm : Form
         root.Controls.Add(new Label { Text = Strings.Get("SettingsHint"), AutoSize = true, ForeColor = Color.FromArgb(139, 150, 170), Margin = new Padding(2, 0, 0, 8) }, 0, 1);
 
         var card = new CardPanel { Dock = DockStyle.Fill, Margin = Padding.Empty, Padding = new Padding(22, 18, 22, 18) };
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 8, Margin = Padding.Empty };
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 10, Margin = Padding.Empty };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 46));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 54));
-        for (var i = 0; i < 4; i++) grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
-        for (var i = 4; i < 8; i++) grid.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
+        for (var i = 0; i < 6; i++) grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+        for (var i = 6; i < 10; i++) grid.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
         card.Controls.Add(grid);
         root.Controls.Add(card, 0, 2);
 
@@ -58,23 +61,35 @@ internal sealed class SettingsForm : Form
         _language.SelectedIndex = settings.Language switch { "ru" => 1, "en" => 2, _ => 0 };
         _interfaceLanguage.Items.AddRange(["Русский", "English"]);
         _interfaceLanguage.SelectedIndex = settings.InterfaceLanguage == "en" ? 1 : 0;
-        _hotkey.Items.AddRange(["CapsLock", "F8", "F9", "F10", "F11", "F12"]);
+        _hotkey.Items.AddRange(HotkeyChoices);
+        if (!_hotkey.Items.Contains(settings.PushToTalkKey)) _hotkey.Items.Insert(0, settings.PushToTalkKey);
         _hotkey.SelectedItem = settings.PushToTalkKey;
-        if (_hotkey.SelectedIndex < 0) _hotkey.SelectedItem = "CapsLock";
+        if (_hotkey.SelectedIndex < 0) _hotkey.SelectedItem = "F8";
+        LoadMicrophones(settings.MicrophoneId);
+        _sensitivity.Minimum = 100;
+        _sensitivity.Maximum = 500;
+        _sensitivity.Increment = 25;
+        _sensitivity.Value = Math.Clamp(settings.MicrophoneSensitivity, 100, 500);
+        _sensitivity.Dock = DockStyle.Fill;
+        _sensitivity.Margin = new Padding(8, 7, 0, 7);
+        _sensitivity.BackColor = Color.FromArgb(39, 46, 61);
+        _sensitivity.ForeColor = Color.White;
 
         AddField(grid, 0, Strings.Get("Model"), _model);
         AddField(grid, 1, Strings.Get("SpeechLanguage"), _language);
         AddField(grid, 2, Strings.Get("InterfaceLanguage"), _interfaceLanguage);
         AddField(grid, 3, Strings.Get("Hotkey"), _hotkey);
+        AddField(grid, 4, Strings.Get("Microphone"), _microphone);
+        AddField(grid, 5, Strings.Get("Sensitivity"), _sensitivity);
 
         ConfigureCheck(_suppress, Strings.Get("Suppress"), settings.SuppressPushToTalkKey);
         ConfigureCheck(_restoreClipboard, Strings.Get("RestoreClipboard"), settings.RestoreClipboard);
         ConfigureCheck(_closeToTray, Strings.Get("CloseToTray"), settings.CloseToTray);
         ConfigureCheck(_startMinimized, Strings.Get("StartMinimized"), settings.StartMinimized);
-        grid.Controls.Add(_suppress, 0, 4); grid.SetColumnSpan(_suppress, 2);
-        grid.Controls.Add(_restoreClipboard, 0, 5); grid.SetColumnSpan(_restoreClipboard, 2);
-        grid.Controls.Add(_closeToTray, 0, 6); grid.SetColumnSpan(_closeToTray, 2);
-        grid.Controls.Add(_startMinimized, 0, 7); grid.SetColumnSpan(_startMinimized, 2);
+        grid.Controls.Add(_suppress, 0, 6); grid.SetColumnSpan(_suppress, 2);
+        grid.Controls.Add(_restoreClipboard, 0, 7); grid.SetColumnSpan(_restoreClipboard, 2);
+        grid.Controls.Add(_closeToTray, 0, 8); grid.SetColumnSpan(_closeToTray, 2);
+        grid.Controls.Add(_startMinimized, 0, 9); grid.SetColumnSpan(_startMinimized, 2);
 
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Padding = new Padding(0, 12, 0, 0), Margin = Padding.Empty };
         var save = NewButton(Strings.Get("Save"), true);
@@ -107,6 +122,23 @@ internal sealed class SettingsForm : Form
 
     private static void ConfigureCheck(CheckBox box, string text, bool value) { box.Text = text; box.Checked = value; }
 
+    private void LoadMicrophones(string selectedId)
+    {
+        var systemDefault = new MicrophoneChoice("", Strings.Get("SystemDefault"));
+        _microphone.Items.Add(systemDefault);
+        try
+        {
+            foreach (var device in AudioRecorder.GetInputDevices())
+                _microphone.Items.Add(new MicrophoneChoice(device.Id, device.Name));
+        }
+        catch
+        {
+            // Keep the system-default option available even if Windows cannot enumerate devices.
+        }
+        _microphone.SelectedItem = _microphone.Items.Cast<MicrophoneChoice>()
+            .FirstOrDefault(item => item.Id == selectedId) ?? systemDefault;
+    }
+
     private static Button NewButton(string text, bool primary) => new()
     {
         Text = text,
@@ -127,7 +159,10 @@ internal sealed class SettingsForm : Form
             Model = _model.SelectedItem?.ToString() ?? "large-v3",
             Language = _language.SelectedIndex switch { 1 => "ru", 2 => "en", _ => "auto" },
             InterfaceLanguage = _interfaceLanguage.SelectedIndex == 1 ? "en" : "ru",
-            PushToTalkKey = _hotkey.SelectedItem?.ToString() ?? "CapsLock",
+            SettingsVersion = AppSettings.CurrentSettingsVersion,
+            PushToTalkKey = _hotkey.SelectedItem?.ToString() ?? "F8",
+            MicrophoneId = (_microphone.SelectedItem as MicrophoneChoice)?.Id ?? "",
+            MicrophoneSensitivity = (int)_sensitivity.Value,
             SuppressPushToTalkKey = _suppress.Checked,
             StartMinimized = _startMinimized.Checked,
             CloseToTray = _closeToTray.Checked,
@@ -136,4 +171,20 @@ internal sealed class SettingsForm : Form
         Result.Save();
         DialogResult = DialogResult.OK;
     }
+
+    private sealed record MicrophoneChoice(string Id, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
+    internal static readonly string[] HotkeyChoices =
+    [
+        "F8", "F9", "F10", "F11", "F12",
+        "F1", "F2", "F3", "F4", "F5", "F6", "F7",
+        "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24",
+        "CapsLock", "Scroll", "Pause", "Insert", "Home", "End", "PageUp", "PageDown",
+        "NumPad0", "NumPad1", "NumPad2", "NumPad3", "NumPad4", "NumPad5", "NumPad6", "NumPad7", "NumPad8", "NumPad9",
+        "Multiply", "Divide", "Add", "Subtract", "Decimal",
+        "BrowserBack", "BrowserForward", "MediaPlayPause", "MediaNextTrack", "MediaPreviousTrack", "VolumeMute"
+    ];
 }

@@ -31,7 +31,7 @@ internal sealed class MainForm : Form
     private readonly Button _copyButton = new();
     private readonly Label _privacy = new();
     private readonly Panel _meter = new();
-    private readonly ProgressBar _progress = new();
+    private readonly ModernProgressBar _progress = new();
     private readonly Label _progressText = new();
 
     private CancellationTokenSource? _operation;
@@ -177,7 +177,7 @@ internal sealed class MainForm : Form
         _meter.Paint += PaintMeter;
         _progress.Dock = DockStyle.Fill;
         _progress.Margin = new Padding(2, 1, 2, 1);
-        _progress.Style = ProgressBarStyle.Marquee;
+        _progress.IsIndeterminate = true;
         _progressText.Dock = DockStyle.Fill;
         _progressText.AutoEllipsis = true;
         _progressText.ForeColor = Color.FromArgb(151, 161, 180);
@@ -268,12 +268,12 @@ internal sealed class MainForm : Form
                 if (value.Stage == ModelLoadStage.Preparing)
                 {
                     RenderState(Strings.Get("PreparingEngine"), $"{_settings.Model} • {Strings.Get("EngineStarting")}", Color.FromArgb(250, 183, 70), true);
-                    _progress.Style = ProgressBarStyle.Marquee;
+                    _progress.IsIndeterminate = true;
                     _progressText.Text = Strings.Get("AlmostReady");
                     return;
                 }
                 RenderState(Strings.Get("DownloadingModel"), $"{_settings.Model} • {Strings.Get("FirstRun")}", Color.FromArgb(250, 183, 70), true);
-                _progress.Style = ProgressBarStyle.Continuous;
+                _progress.IsIndeterminate = false;
                 _progress.Value = value.Percent;
                 _progressText.Text = FormatDownloadProgress(value);
             });
@@ -301,7 +301,7 @@ internal sealed class MainForm : Form
         try
         {
             _operation = new CancellationTokenSource();
-            _recorder.Start();
+            _recorder.Start(_settings.MicrophoneId);
             _busy = true;
             RenderState(Strings.Get("Listening"), Strings.Get("SpeakRelease"), Color.FromArgb(255, 92, 118));
         }
@@ -315,7 +315,17 @@ internal sealed class MainForm : Form
     private async Task StopAndTranscribeAsync()
     {
         if (!_busy || !_recorder.IsRecording) return;
-        var audio = _recorder.Stop();
+        byte[] audio;
+        try
+        {
+            audio = _recorder.Stop(_settings.MicrophoneSensitivity);
+        }
+        catch (Exception ex)
+        {
+            _busy = false;
+            RenderState(Strings.Get("MicError"), FriendlyError(ex), Color.FromArgb(255, 103, 121));
+            return;
+        }
         if (audio.Length < 10_000)
         {
             _busy = false;
@@ -356,7 +366,16 @@ internal sealed class MainForm : Form
     {
         if (!_busy) return;
         _operation?.Cancel();
-        if (_recorder.IsRecording) _recorder.Cancel();
+        try
+        {
+            if (_recorder.IsRecording) _recorder.Cancel();
+        }
+        catch (Exception ex)
+        {
+            _busy = false;
+            RenderState(Strings.Get("MicError"), FriendlyError(ex), Color.FromArgb(255, 103, 121));
+            return;
+        }
         _busy = false;
         SetReadyState(Strings.Get("Cancelled"));
     }
@@ -414,7 +433,7 @@ internal sealed class MainForm : Form
 
     private void ApplyHotkeySettings()
     {
-        _keyboard.PushToTalkKey = Enum.TryParse<Keys>(_settings.PushToTalkKey, true, out var key) ? key : Keys.CapsLock;
+        _keyboard.PushToTalkKey = Enum.TryParse<Keys>(_settings.PushToTalkKey, true, out var key) ? key : Keys.F8;
         _keyboard.Suppress = _settings.SuppressPushToTalkKey;
     }
 
@@ -430,7 +449,7 @@ internal sealed class MainForm : Form
         _progressText.Visible = showProgress;
         if (showProgress)
         {
-            _progress.Style = ProgressBarStyle.Marquee;
+            _progress.IsIndeterminate = true;
             _progressText.Text = Strings.Get("Preparing");
         }
         else _progress.Value = 0;
