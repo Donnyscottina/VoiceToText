@@ -38,11 +38,11 @@ internal sealed class AudioRecorder : IDisposable
                     _device = enumerator.GetDevice(deviceId);
                     if (_device.State != DeviceState.Active)
                         throw new InvalidOperationException("The selected microphone is not available.");
-                    _capture = new WasapiCapture(_device);
+                    _capture = CreateCapture(_device);
                 }
                 else
                 {
-                    _capture = new WasapiCapture();
+                    _capture = CreateCapture();
                 }
                 _stopped = new ManualResetEventSlim(false);
                 _recordingError = null;
@@ -71,6 +71,24 @@ internal sealed class AudioRecorder : IDisposable
     }
 
     public byte[] Stop(int sensitivityPercent = 100) => StopCore(sensitivityPercent, convert: true);
+
+    private static WasapiCapture CreateCapture(MMDevice? device = null)
+    {
+        // WasapiCapture posts RecordingStopped to the synchronization context it
+        // sees in its constructor. StopCore waits for that event synchronously, so
+        // capturing the WinForms context here would block the very UI thread that
+        // must deliver the event and every stop would end in a false timeout.
+        var context = SynchronizationContext.Current;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(null);
+            return device is null ? new WasapiCapture() : new WasapiCapture(device);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(context);
+        }
+    }
 
     private byte[] StopCore(int sensitivityPercent, bool convert)
     {

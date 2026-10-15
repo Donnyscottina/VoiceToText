@@ -10,7 +10,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>VoiceToText</AssemblyName>
     <RootNamespace>VoiceToText</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Authors>Donnyscottina</Authors>
     <Company>Donnyscottina</Company>
     <Description>Private local push-to-talk speech recognition for Windows.</Description>
